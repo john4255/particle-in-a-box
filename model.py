@@ -5,11 +5,11 @@ from keras import Model
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Define constants using nanometers, amu
 n = 3 # Energy level
-h = 6.626E-34 * 1.0E18 * 6.022E26 # Planck's constant (nm^2 amu / s)
-m = 0.0005485 # electron mass (amu)
-L = 10 # nanometers
+h = 6.626E-34 # Planck's constant (m^2 kg / s)
+hbar = h / (2.0 * np.pi) # reduced Planck's constant
+m = 9.109E-31 # electron mass (kg)
+L = 10E-9 # meters
 E = (n * h / L) ** 2 / (8 * m)
 
 def psi_soln(x):
@@ -70,7 +70,16 @@ def train_step(x, psi):
     x = tf.reshape([x], shape=(1,1,))
     with tf.GradientTape() as tape:
         predictions = model(x, training=True)
-        loss = loss_object(psi, predictions)
+        dpsi_dx = tf.gradients(predictions, x)
+        d2psi_dx2 = tf.gradients(dpsi_dx, x)
+        physics_loss = E * predictions + (hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+        data_loss = loss_object(psi, predictions)
+
+        # tf.print(physics_loss)
+        # tf.print(data_loss)
+        # tf.print()
+
+        loss = data_loss + 2.0 * tf.norm(1.0E20 * physics_loss)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
@@ -82,7 +91,7 @@ def test_step(x, psi):
     t_loss = loss_object(psi, predictions)
     test_loss(t_loss)
 
-EPOCHS = 50
+EPOCHS = 2000
 
 for epoch in range(EPOCHS):
     # Reset the metrics at the start of the next epoch
