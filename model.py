@@ -28,8 +28,6 @@ def gen_data(sz=1000):
 
 ds = gen_data()
 
-fig, ax = plt.subplots()
-
 # Slice data
 train_sz = int(0.9 * len(ds))
 train_ds = np.array(ds[:train_sz])
@@ -37,9 +35,6 @@ test_ds = np.array(ds[train_sz:])
 
 train_ds = tf.data.Dataset.from_tensor_slices((train_ds[:, 0], train_ds[:, 1]))
 test_ds = tf.data.Dataset.from_tensor_slices((test_ds[:, 0], test_ds[:, 1]))
-
-ax.scatter(ds[:,0], ds[:, 1], c='magenta', marker='x')
-ax.set_xticks(np.linspace(0.0, L, 5))
 
 class QMModel(Model):
     def __init__(self):
@@ -117,7 +112,7 @@ for epoch in range(EPOCHS):
     
     x_sample = np.linspace(0, L, 100)
     for x in x_sample:
-        for i in range(25):
+        for i in range(40):
             train_physics(x)
 
     for x, psi in test_ds:
@@ -129,6 +124,11 @@ for epoch in range(EPOCHS):
         f'Test Loss: {test_loss.result():0.2f}, '
     )
 
+fig, ax = plt.subplots()
+
+ax.scatter(ds[:,0], ds[:, 1], c='magenta', marker='x')
+ax.set_xticks(np.linspace(0.0, L, 5))
+
 x_vis = np.linspace(0.0, L, 100)
 psi_vis = np.zeros(100)
 for i, x in enumerate(x_vis):
@@ -137,4 +137,5 @@ for i, x in enumerate(x_vis):
     psi_vis[i] = psi
 plt.plot(x_vis, psi_vis, c='lime')
 
+plt.savefig('solution.png')
 plt.show()
