@@ -85,13 +85,27 @@ def train_step(x, psi):
     train_loss(loss)
 
 @tf.function
+def train_physics(x):
+    x = tf.reshape([x], shape=(1,1,))
+    with tf.GradientTape() as tape:
+        predictions = model(x, training=True)
+        dpsi_dx = tf.gradients(predictions, x)
+        d2psi_dx2 = tf.gradients(dpsi_dx, x)
+        physics_loss = E * predictions + (hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+        loss = 100.0 * tf.norm(1.0E20 * physics_loss)
+
+    gradients = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    train_loss(loss)
+
+@tf.function
 def test_step(x, psi):
     x = tf.reshape([x], shape=(1,1,))
     predictions = model(x, training=False)
     t_loss = loss_object(psi, predictions)
     test_loss(t_loss)
 
-EPOCHS = 2000
+EPOCHS = 800
 
 for epoch in range(EPOCHS):
     # Reset the metrics at the start of the next epoch
@@ -100,6 +114,11 @@ for epoch in range(EPOCHS):
 
     for x, psi in train_ds:
         train_step(x, psi)
+    
+    x_sample = np.linspace(0, L, 100)
+    for x in x_sample:
+        for i in range(25):
+            train_physics(x)
 
     for x, psi in test_ds:
         test_step(x, psi)
