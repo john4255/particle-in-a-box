@@ -107,13 +107,15 @@ for epoch in range(EPOCHS):
     train_loss.reset_state()
     test_loss.reset_state()
 
+    optimizer.learning_rate = 1.0E-4
     for x, psi in train_ds:
         train_step(x, psi)
     
-    x_sample = np.linspace(0, L, 100)
+    optimizer.learning_rate = 1.0E-2
+    x_sample = np.linspace(0.0, L, 100)
     for x in x_sample:
-        for i in range(40):
-            train_physics(x)
+        # for i in range(40):
+        train_physics(x)
 
     for x, psi in test_ds:
         test_step(x, psi)
