@@ -9,8 +9,13 @@ n = 3 # Energy level
 h = 6.626E-34 # Planck's constant (m^2 kg / s)
 hbar = h / (2.0 * np.pi) # reduced Planck's constant
 m = 9.109E-31 # electron mass (kg)
-L = 10E-9 # meters
-E = (n * h / L) ** 2 / (8 * m)
+L = 10.0E-9 # box size (meters)
+E = (n * h / L) ** 2 / (8 * m) # Energy (Joules)
+
+def V(x):
+    if x == 0 or x == L:
+        return 1.0E6
+    return 0.0
 
 def psi_soln(x):
     return np.sqrt(2 / L) * np.sin(n * np.pi * x / L)
@@ -50,7 +55,11 @@ optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4)
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
-physics_weight = 50.0
+physics_weight = 1.0E2
+
+@tf.function
+def calc_physics_loss(x, predictions, d2psi_dx2):
+    return E * predictions + (hbar ** 2 / (2 * m) - V(x)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
 
 @tf.function
 def train_step(x, psi):
@@ -59,7 +68,7 @@ def train_step(x, psi):
         predictions = model(x, training=True)
         dpsi_dx = tf.gradients(predictions, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        physics_loss = E * predictions + (hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+        physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
         data_loss = loss_object(psi, predictions)
 
         # tf.print(physics_loss)
@@ -78,8 +87,8 @@ def train_physics(x):
         predictions = model(x, training=True)
         dpsi_dx = tf.gradients(predictions, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        physics_loss = E * predictions + (hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
-        loss = 100.0 * tf.norm(1.0E20 * physics_loss)
+        physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
+        loss = physics_weight * tf.norm(1.0E20 * physics_loss)
 
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -91,7 +100,7 @@ def test_step(x, psi):
     predictions = model(x, training=False)
     dpsi_dx = tf.gradients(predictions, x)
     d2psi_dx2 = tf.gradients(dpsi_dx, x)
-    physics_loss = E * predictions + (hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+    physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
     data_loss = loss_object(psi, predictions)
     t_loss = data_loss + physics_weight * tf.norm(1.0E20 * physics_loss)
     test_loss(t_loss)
@@ -104,6 +113,7 @@ for epoch in range(EPOCHS):
     train_loss.reset_state()
     test_loss.reset_state()
 
+    # Shuffle dataset
     np.random.shuffle(ds)
     train_sz = int(0.9 * len(ds))
     train_ds = np.array(ds[:train_sz])
@@ -112,6 +122,7 @@ for epoch in range(EPOCHS):
     train_ds = tf.data.Dataset.from_tensor_slices((train_ds[:, 0], train_ds[:, 1]))
     test_ds = tf.data.Dataset.from_tensor_slices((test_ds[:, 0], test_ds[:, 1]))
 
+    # Train data
     for x, psi in train_ds:
         train_step(x, psi)
     
@@ -119,6 +130,7 @@ for epoch in range(EPOCHS):
     for x in x_sample:
         for _ in range(50): train_physics(x)
 
+    # Test data
     for x, psi in test_ds:
         test_step(x, psi)
 
