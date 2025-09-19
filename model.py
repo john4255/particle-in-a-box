@@ -26,16 +26,6 @@ def gen_data(sz=1000):
         ds[i] = [x, psi_noised]
     return ds
 
-ds = gen_data()
-
-# Slice data
-train_sz = int(0.9 * len(ds))
-train_ds = np.array(ds[:train_sz])
-test_ds = np.array(ds[train_sz:])
-
-train_ds = tf.data.Dataset.from_tensor_slices((train_ds[:, 0], train_ds[:, 1]))
-test_ds = tf.data.Dataset.from_tensor_slices((test_ds[:, 0], test_ds[:, 1]))
-
 class QMModel(Model):
     def __init__(self):
         super().__init__()
@@ -60,6 +50,8 @@ optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4)
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
+physics_weight = 50.0
+
 @tf.function
 def train_step(x, psi):
     x = tf.reshape([x], shape=(1,1,))
@@ -74,7 +66,7 @@ def train_step(x, psi):
         # tf.print(data_loss)
         # tf.print()
 
-        loss = data_loss + 2.0 * tf.norm(1.0E20 * physics_loss)
+        loss = data_loss + physics_weight * tf.norm(1.0E20 * physics_loss)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
@@ -97,25 +89,35 @@ def train_physics(x):
 def test_step(x, psi):
     x = tf.reshape([x], shape=(1,1,))
     predictions = model(x, training=False)
-    t_loss = loss_object(psi, predictions)
+    dpsi_dx = tf.gradients(predictions, x)
+    d2psi_dx2 = tf.gradients(dpsi_dx, x)
+    physics_loss = E * predictions + (hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+    data_loss = loss_object(psi, predictions)
+    t_loss = data_loss + physics_weight * tf.norm(1.0E20 * physics_loss)
     test_loss(t_loss)
 
 EPOCHS = 800
+ds = gen_data()
 
 for epoch in range(EPOCHS):
     # Reset the metrics at the start of the next epoch
     train_loss.reset_state()
     test_loss.reset_state()
 
-    optimizer.learning_rate = 1.0E-4
+    np.random.shuffle(ds)
+    train_sz = int(0.9 * len(ds))
+    train_ds = np.array(ds[:train_sz])
+    test_ds = np.array(ds[train_sz:])
+
+    train_ds = tf.data.Dataset.from_tensor_slices((train_ds[:, 0], train_ds[:, 1]))
+    test_ds = tf.data.Dataset.from_tensor_slices((test_ds[:, 0], test_ds[:, 1]))
+
     for x, psi in train_ds:
         train_step(x, psi)
     
-    optimizer.learning_rate = 1.0E-2
     x_sample = np.linspace(0.0, L, 100)
     for x in x_sample:
-        # for i in range(40):
-        train_physics(x)
+        for _ in range(50): train_physics(x)
 
     for x, psi in test_ds:
         test_step(x, psi)
