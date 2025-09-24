@@ -6,12 +6,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 n = 3 # Energy level
-h = 6.626E-34 # Planck's constant (m^2 kg / s)
+h = 6.626E-19 # Planck's constant (um^2 g / s)
 hbar = h / (2.0 * np.pi) # reduced Planck's constant
-m = 9.109E-31 # electron mass (kg)
-L = 10.0E-9 # box size (meters)
-E = (n * h / L) ** 2 / (8 * m) # Energy (Joules)
+m = 9.109E-28 # electron mass (g)
+L = 10.0E-3 # box size (um)
+E = (n * h / L) ** 2 / (8 * m) # Energy (um^2 g / s^2)
 
+@tf.function
 def V(x):
     if x == 0 or x == L:
         return 1.0E6
@@ -34,32 +35,34 @@ def gen_data(sz=1000):
 class QMModel(Model):
     def __init__(self):
         super().__init__()
-        self.d1 = Dense(32, activation='relu')
-        self.d2 = Dense(32, activation='relu')
-        self.d3 = Dense(32, activation='relu')
+        self.d1 = Dense(128, activation='gelu')
+        self.d2 = Dense(128, activation='gelu')
+        # self.d3 = Dense(32, activation='gelu')
         self.d4 = Dense(1, activation='linear')
 
     def call(self, x):
         x = x / L
         x = self.d1(x)
         x = self.d2(x)
-        x = self.d3(x)
+        # x = self.d3(x)
         x = self.d4(x)
         return x
 
 model = QMModel()
 
 loss_object = tf.keras.losses.MeanSquaredError()
-optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4)
+optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=10.0)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
-physics_weight = 1.0E2
+data_weight = tf.constant(10.0)
+physics_weight = tf.constant(0.0)
 
 @tf.function
 def calc_physics_loss(x, predictions, d2psi_dx2):
-    return E * predictions + (hbar ** 2 / (2 * m) - V(x)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+    p_loss = E * predictions + (hbar ** 2 / (2 * m) - V(x)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+    return tf.norm(p_loss)
 
 @tf.function
 def train_step(x, psi):
@@ -70,12 +73,8 @@ def train_step(x, psi):
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
         physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
         data_loss = loss_object(psi, predictions)
-
-        # tf.print(physics_loss)
-        # tf.print(data_loss)
-        # tf.print()
-
-        loss = data_loss + physics_weight * tf.norm(1.0E20 * physics_loss)
+        loss = data_weight * data_loss + physics_weight * physics_loss
+        
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
@@ -88,7 +87,7 @@ def train_physics(x):
         dpsi_dx = tf.gradients(predictions, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
         physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
-        loss = physics_weight * tf.norm(1.0E20 * physics_loss)
+        loss = physics_weight * physics_loss
 
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -102,17 +101,13 @@ def test_step(x, psi):
     d2psi_dx2 = tf.gradients(dpsi_dx, x)
     physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
     data_loss = loss_object(psi, predictions)
-    t_loss = data_loss + physics_weight * tf.norm(1.0E20 * physics_loss)
+    t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 800
+EPOCHS = 1000
 ds = gen_data()
 
 for epoch in range(EPOCHS):
-    # Reset the metrics at the start of the next epoch
-    train_loss.reset_state()
-    test_loss.reset_state()
-
     # Shuffle dataset
     np.random.shuffle(ds)
     train_sz = int(0.9 * len(ds))
@@ -123,21 +118,29 @@ for epoch in range(EPOCHS):
     test_ds = tf.data.Dataset.from_tensor_slices((test_ds[:, 0], test_ds[:, 1]))
 
     # Train data
+    train_loss.reset_state()
     for x, psi in train_ds:
         train_step(x, psi)
-    
-    x_sample = np.linspace(0.0, L, 100)
-    for x in x_sample:
-        for _ in range(50): train_physics(x)
+    reg_training_loss = train_loss.result()
 
+    # train_loss.reset_state()
+    # x_sample = np.linspace(0.0, L, 100)
+    # # for _ in range(10):
+    # for x in x_sample:
+    #     train_physics(x)
+    # physics_training_loss = train_loss.result()
+
+    test_loss.reset_state()
     # Test data
     for x, psi in test_ds:
         test_step(x, psi)
+    reg_test_loss = test_loss.result()
 
     print(
-        f'Epoch {epoch + 1}, '
-        f'Loss: {train_loss.result():0.2f}, '
-        f'Test Loss: {test_loss.result():0.2f}, '
+        f'Epoch {epoch+1:04d}: '
+        f'Reg Loss: {reg_training_loss:0.2f}, '
+        # f'Pure Physics Loss: {physics_training_loss:0.2f}, '
+        f'Test Loss: {reg_test_loss:0.2f}, '
     )
 
 fig, ax = plt.subplots()
