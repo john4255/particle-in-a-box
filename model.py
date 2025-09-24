@@ -57,7 +57,7 @@ train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
 data_weight = tf.constant(10.0)
-physics_weight = tf.constant(0.0)
+physics_weight = tf.constant(1.0E-6)
 
 @tf.function
 def calc_physics_loss(x, predictions, d2psi_dx2):
@@ -104,7 +104,7 @@ def test_step(x, psi):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 1000
+EPOCHS = 800
 ds = gen_data()
 
 for epoch in range(EPOCHS):
@@ -123,12 +123,12 @@ for epoch in range(EPOCHS):
         train_step(x, psi)
     reg_training_loss = train_loss.result()
 
-    # train_loss.reset_state()
-    # x_sample = np.linspace(0.0, L, 100)
-    # # for _ in range(10):
-    # for x in x_sample:
-    #     train_physics(x)
-    # physics_training_loss = train_loss.result()
+    train_loss.reset_state()
+    x_sample = np.linspace(0.0, L, 100)
+    # for _ in range(10):
+    for x in x_sample:
+        train_physics(x)
+    physics_training_loss = train_loss.result()
 
     test_loss.reset_state()
     # Test data
@@ -139,7 +139,7 @@ for epoch in range(EPOCHS):
     print(
         f'Epoch {epoch+1:04d}: '
         f'Reg Loss: {reg_training_loss:0.2f}, '
-        # f'Pure Physics Loss: {physics_training_loss:0.2f}, '
+        f'Pure Physics Loss: {physics_training_loss:0.2f}, '
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
 
