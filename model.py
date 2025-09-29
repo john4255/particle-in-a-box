@@ -15,13 +15,13 @@ E = (n * h / L) ** 2 / (8 * m) # Energy (um^2 g / s^2)
 @tf.function
 def V(x):
     if x == 0 or x == L:
-        return 1.0E6
+        return 1.0E10
     return 0.0
 
 def psi_soln(x):
     return np.sqrt(2 / L) * np.sin(n * np.pi * x / L)
 
-def gen_data(sz=1000):
+def gen_data(sz=500):
     ds = np.zeros([sz,2])
     for i in range(sz):
         x = np.random.rand() * L
@@ -124,8 +124,7 @@ for epoch in range(EPOCHS):
     reg_training_loss = train_loss.result()
 
     train_loss.reset_state()
-    x_sample = np.linspace(0.0, L, 100)
-    # for _ in range(10):
+    x_sample = np.linspace(0.0, L, 500)
     for x in x_sample:
         train_physics(x)
     physics_training_loss = train_loss.result()
@@ -142,6 +141,8 @@ for epoch in range(EPOCHS):
         f'Pure Physics Loss: {physics_training_loss:0.2f}, '
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
+
+model.save('model.keras')
 
 fig, ax = plt.subplots()
 
