@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Dense, Normalization, Input
+from keras.layers import Dense
 from keras import Model
 
 import numpy as np
@@ -21,7 +21,7 @@ def V(x):
 def psi_soln(x):
     return np.sqrt(2 / L) * np.sin(n * np.pi * x / L)
 
-def gen_data(sz=500):
+def gen_data(sz=1000):
     ds = np.zeros([sz,2])
     for i in range(sz):
         x = np.random.rand() * L
@@ -35,33 +35,42 @@ def gen_data(sz=500):
 class QMModel(Model):
     def __init__(self):
         super().__init__()
+
+        def E_init(shape, dtype):
+            return [1.0E-6]
+        
+        self.E = self.add_weight(
+            shape=([1]),
+            initializer=E_init,
+            trainable=True,
+        )
         self.d1 = Dense(128, activation='gelu')
         self.d2 = Dense(128, activation='gelu')
-        # self.d3 = Dense(32, activation='gelu')
+        self.d3 = Dense(128, activation='gelu')
         self.d4 = Dense(1, activation='linear')
 
     def call(self, x):
         x = x / L
         x = self.d1(x)
         x = self.d2(x)
-        # x = self.d3(x)
+        x = self.d3(x)
         x = self.d4(x)
         return x
 
 model = QMModel()
 
 loss_object = tf.keras.losses.MeanSquaredError()
-optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=10.0)
+optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=0.1)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
-data_weight = tf.constant(10.0)
+data_weight = tf.constant(1.0E1)
 physics_weight = tf.constant(1.0E-6)
 
 @tf.function
 def calc_physics_loss(x, predictions, d2psi_dx2):
-    p_loss = E * predictions + (hbar ** 2 / (2 * m) - V(x)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
+    p_loss = model.E * predictions + (hbar ** 2 / (2 * m) - V(x)) * tf.cast(d2psi_dx2[0], dtype=tf.float32)
     return tf.norm(p_loss)
 
 @tf.function
@@ -74,7 +83,8 @@ def train_step(x, psi):
         physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
         data_loss = loss_object(psi, predictions)
         loss = data_weight * data_loss + physics_weight * physics_loss
-        
+    
+    # print(model.trainable_variables)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
@@ -104,7 +114,7 @@ def test_step(x, psi):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 800
+EPOCHS = 1000
 ds = gen_data()
 
 for epoch in range(EPOCHS):
@@ -124,7 +134,7 @@ for epoch in range(EPOCHS):
     reg_training_loss = train_loss.result()
 
     train_loss.reset_state()
-    x_sample = np.linspace(0.0, L, 500)
+    x_sample = np.linspace(0.0, L, 250)
     for x in x_sample:
         train_physics(x)
     physics_training_loss = train_loss.result()
@@ -144,13 +154,18 @@ for epoch in range(EPOCHS):
 
 model.save('model.keras')
 
+print()
+print('=== Training Complete ===')
+print(f'E (real)    = {E}')
+print(f'E (learned) = {model.E.numpy()[0]}')
+
 fig, ax = plt.subplots()
 
 ax.scatter(ds[:,0], ds[:, 1], c='magenta', marker='x')
 ax.set_xticks(np.linspace(0.0, L, 5))
 
-x_vis = np.linspace(0.0, L, 100)
-psi_vis = np.zeros(100)
+x_vis = np.linspace(0.0, L, 250)
+psi_vis = np.zeros(250)
 for i, x in enumerate(x_vis):
     x = tf.reshape([x], shape=(1,1))
     psi = model(x)
