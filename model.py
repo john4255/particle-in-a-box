@@ -14,8 +14,8 @@ E = (n * h / L) ** 2 / (8 * m) # Energy (um^2 g / s^2)
 
 @tf.function
 def V(x):
-    if x == 0 or x == L:
-        return 1.0E9
+    if x < 0 or x > L:
+        return 1.0E10
     return 0.0
 
 def psi_soln(x):
@@ -44,9 +44,9 @@ class QMModel(Model):
         #     initializer=E_init,
         #     trainable=True,
         # )
-        self.d1 = Dense(64, activation='gelu')
-        self.d2 = Dense(64, activation='gelu')
-        self.d3 = Dense(64, activation='gelu')
+        self.d1 = Dense(128, activation='gelu')
+        self.d2 = Dense(128, activation='gelu')
+        self.d3 = Dense(128, activation='gelu')
         self.d4 = Dense(1, activation='linear')
 
     @tf.function
@@ -69,15 +69,15 @@ class QMModel(Model):
 model = QMModel()
 
 loss_object = tf.keras.losses.MeanSquaredError()
-optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=100.0)
+optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=10.0)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
 data_weight = tf.constant(1.0)
-physics_weight = tf.constant(1.0E6)
+physics_weight = tf.constant(1.0)
 reverse_l2_weight = tf.constant(0.0)
-physics_reps = 3
+physics_reps = 10
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
@@ -126,7 +126,7 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss - reverse_l2_weight * tf.norm(psi)
     test_loss(t_loss)
 
-EPOCHS = 800
+EPOCHS = 500
 ds = gen_data()
 
 for epoch in range(EPOCHS):
