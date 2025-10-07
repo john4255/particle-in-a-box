@@ -47,7 +47,11 @@ class QMModel(Model):
         self.d1 = Dense(128, activation='gelu')
         self.d2 = Dense(128, activation='gelu')
         self.d3 = Dense(128, activation='gelu')
-        self.d4 = Dense(1, activation='linear')
+        # self.d4 = Dense(128, activation='gelu')
+        self.d5 = Dense(1, activation='linear')
+
+        # self.drop1 = Dropout(0.3)
+        # self.drop2 = Dropout(0.3)
 
     @tf.function
     def call_wavefn(self, x):
@@ -55,7 +59,8 @@ class QMModel(Model):
         x = self.d1(x)
         x = self.d2(x)
         x = self.d3(x)
-        x = self.d4(x)
+        # x = self.d4(x)
+        x = self.d5(x)
         return x
     
     def call(self, x):
@@ -63,20 +68,21 @@ class QMModel(Model):
         x = self.d1(x)
         x = self.d2(x)
         x = self.d3(x)
-        x = self.d4(x)
+        # x = self.d4(x)
+        x = self.d5(x)
         return x ** 2
 
 model = QMModel()
 
 loss_object = tf.keras.losses.MeanSquaredError()
-optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=10.0)
+optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=100.0)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
-data_weight = tf.constant(1.0)
-physics_weight = tf.constant(1.0)
-reverse_l2_weight = tf.constant(0.0)
+data_weight = tf.constant(10.0)
+physics_weight = tf.constant(1.0E-3)
+# reverse_l2_weight = tf.constant(0.0)
 physics_reps = 10
 
 @tf.function
@@ -89,12 +95,12 @@ def train_step(x, density):
     x = tf.reshape([x], shape=(1,1,))
     with tf.GradientTape() as tape:
         predictions = model(x, training=True)
-        # psi = model.call_wavefn(x)
-        # dpsi_dx = tf.gradients(psi, x)
-        # d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        # physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
+        psi = model.call_wavefn(x)
+        dpsi_dx = tf.gradients(psi, x)
+        d2psi_dx2 = tf.gradients(dpsi_dx, x)
+        physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
         data_loss = loss_object(density, predictions)
-        loss = data_weight * data_loss # + physics_weight * physics_loss - reverse_l2_weight * tf.norm(psi)
+        loss = data_weight * data_loss + physics_weight * physics_loss # - reverse_l2_weight * tf.norm(psi)
     
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -107,8 +113,7 @@ def train_physics_step(x):
         psi = model.call_wavefn(x)
         dpsi_dx = tf.gradients(psi, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        physics_loss = calc_physics_loss(x, psi, d2psi_dx2)
-        loss = physics_weight * physics_loss - reverse_l2_weight * tf.norm(psi)
+        loss = calc_physics_loss(x, psi, d2psi_dx2)
 
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -123,7 +128,7 @@ def test_step(x, density):
     d2psi_dx2 = tf.gradients(dpsi_dx, x)
     physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
     data_loss = loss_object(density, predictions)
-    t_loss = data_weight * data_loss + physics_weight * physics_loss - reverse_l2_weight * tf.norm(psi)
+    t_loss = data_weight * data_loss + physics_weight * physics_loss # - reverse_l2_weight * tf.norm(psi)
     test_loss(t_loss)
 
 EPOCHS = 500
@@ -147,7 +152,7 @@ for epoch in range(EPOCHS):
 
     train_loss.reset_state()
     for _ in range(physics_reps):
-        x_sample = np.linspace(-0.05 * L, 1.05 * L, 250)
+        x_sample = np.linspace(-0.1 * L, 1.1 * L, 300)
         np.random.shuffle(x_sample)
         for x in x_sample:
             train_physics_step(x)
