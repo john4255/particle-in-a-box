@@ -1,11 +1,11 @@
 import tensorflow as tf
-from keras.layers import Dense, Dropout
+from keras.layers import Input, Dense, Dropout
 from keras import Model
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-n = 3 # Energy level
+n = 5 # Energy level
 h = 6.626E-19 # Planck's constant (um^2 g / s)
 hbar = h / (2.0 * np.pi) # reduced Planck's constant
 m = 9.109E-28 # electron mass (g)
@@ -14,9 +14,8 @@ E = (n * h / L) ** 2 / (8 * m) # Energy (um^2 g / s^2)
 
 @tf.function
 def V(x):
-    if x < 0 or x > L:
-        return 1.0E10
-    return 0.0
+    res = tf.math.logical_or(x < 0, x > L)
+    return 1.0E10 * tf.cast(res, dtype=tf.float32)
 
 def psi_soln(x):
     return np.sqrt(2 / L) * np.sin(n * np.pi * x / L)
@@ -48,29 +47,38 @@ class QMModel(Model):
         self.d2 = Dense(128, activation='gelu')
         self.d3 = Dense(128, activation='gelu')
         # self.d4 = Dense(128, activation='gelu')
-        self.d5 = Dense(1, activation='linear')
 
-        # self.drop1 = Dropout(0.3)
-        # self.drop2 = Dropout(0.3)
+        self.drop1 = Dropout(0.2)
+        self.drop2 = Dropout(0.2)
+        self.drop3 = Dropout(0.2)
+        # self.drop4 = Dropout(0.2)
+
+        self.dout = Dense(1, activation='linear')
 
     @tf.function
-    def call_wavefn(self, x):
+    def get_wavefunc(self, x):
+        # Overfitting exact physical equations is not a problem, so no need for dropouts
         x = x / L
         x = self.d1(x)
         x = self.d2(x)
         x = self.d3(x)
         # x = self.d4(x)
-        x = self.d5(x)
+        x = self.dout(x)
         return x
     
     def call(self, x):
         x = x / L
         x = self.d1(x)
+        x = self.drop1(x)
         x = self.d2(x)
+        x = self.drop2(x)
         x = self.d3(x)
+        x = self.drop3(x)
         # x = self.d4(x)
-        x = self.d5(x)
-        return x ** 2
+        # x = self.drop4(x)
+        x = self.dout(x)
+        x = x ** 2 # Square the wavefunction to obtain a probability density value
+        return x
 
 model = QMModel()
 
@@ -80,22 +88,23 @@ optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=100.0)
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
-data_weight = tf.constant(10.0)
+# Loss parameters (adjust as needed)
+data_weight = tf.constant(1.0E3)
 physics_weight = tf.constant(1.0E-3)
-# reverse_l2_weight = tf.constant(0.0)
-physics_reps = 10
+# normalization_weight = tf.constant(1.0E3)
+# reverse_l2_weight = tf.constant(1.0E3) # turn off
+physics_reps = 15
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
-    p_loss = E * psi + (hbar ** 2 / (2 * m) * tf.cast(d2psi_dx2[0], dtype=tf.float32)) - V(x) * psi
+    p_loss = E * psi + (hbar ** 2 / (2 * m) * tf.cast(d2psi_dx2, dtype=tf.float32)) - V(x) * psi
     return tf.norm(p_loss)
 
 @tf.function
 def train_step(x, density):
-    x = tf.reshape([x], shape=(1,1,))
     with tf.GradientTape() as tape:
         predictions = model(x, training=True)
-        psi = model.call_wavefn(x)
+        psi = model.get_wavefunc(x)
         dpsi_dx = tf.gradients(psi, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
         physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
@@ -108,12 +117,11 @@ def train_step(x, density):
 
 @tf.function
 def train_physics_step(x):
-    x = tf.reshape([x], shape=(1,1,))
     with tf.GradientTape() as tape:
-        psi = model.call_wavefn(x)
+        psi = model.get_wavefunc(x)
         dpsi_dx = tf.gradients(psi, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        loss = calc_physics_loss(x, psi, d2psi_dx2)
+        loss = calc_physics_loss(x, psi, d2psi_dx2) # - reverse_l2_weight * tf.norm(psi)
 
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -121,9 +129,8 @@ def train_physics_step(x):
 
 @tf.function
 def test_step(x, density):
-    x = tf.reshape([x], shape=(1,1,))
     predictions = model(x, training=False)
-    psi = model.call_wavefn(x)
+    psi = model.get_wavefunc(x)
     dpsi_dx = tf.gradients(psi, x)
     d2psi_dx2 = tf.gradients(dpsi_dx, x)
     physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
@@ -131,9 +138,11 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss # - reverse_l2_weight * tf.norm(psi)
     test_loss(t_loss)
 
-EPOCHS = 500
+EPOCHS = 800 # Adjust as needed
+batch_sz = 20
 ds = gen_data()
 
+# Train model
 for epoch in range(EPOCHS):
     # Shuffle dataset
     np.random.shuffle(ds)
@@ -141,26 +150,31 @@ for epoch in range(EPOCHS):
     train_ds = np.array(ds[:train_sz])
     test_ds = np.array(ds[train_sz:])
 
-    train_ds = tf.data.Dataset.from_tensor_slices((train_ds[:, 0], train_ds[:, 1]))
-    test_ds = tf.data.Dataset.from_tensor_slices((test_ds[:, 0], test_ds[:, 1]))
+    train_ds = tf.data.Dataset.from_tensor_slices((train_ds[:, 0], train_ds[:, 1])).batch(batch_sz)
+    test_ds = tf.data.Dataset.from_tensor_slices((test_ds[:, 0], test_ds[:, 1])).batch(batch_sz)
 
     # Train data
     train_loss.reset_state()
     for x, psi in train_ds:
+        x = tf.reshape([x], shape=(batch_sz,1,))
+        psi = tf.reshape([psi], shape=(batch_sz,1,))
         train_step(x, psi)
     reg_training_loss = train_loss.result()
 
     train_loss.reset_state()
     for _ in range(physics_reps):
-        x_sample = np.linspace(-0.1 * L, 1.1 * L, 300)
-        np.random.shuffle(x_sample)
+        x_sample = np.linspace(-0.1 * L, 1.1 * L, 400)
+        # np.random.shuffle(x_sample)
+        x_sample = np.split(x_sample, len(x_sample) // batch_sz)
         for x in x_sample:
+            x = tf.reshape([x], shape=(batch_sz,1,))
             train_physics_step(x)
     physics_training_loss = train_loss.result()
 
-    test_loss.reset_state()
     # Test data
+    test_loss.reset_state()
     for x, psi in test_ds:
+        x = tf.reshape([x], shape=(batch_sz,1,))
         test_step(x, psi)
     reg_test_loss = test_loss.result()
 
@@ -171,7 +185,7 @@ for epoch in range(EPOCHS):
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
 
-model.save('model.keras')
+model.save(f'model_n={n}.keras')
 
 # print()
 # print('=== Training Complete ===')
@@ -187,12 +201,12 @@ x_vis = np.linspace(0.0, L, 250)
 psi_vis = np.zeros(250)
 probs_vis = np.zeros(250)
 for i, x in enumerate(x_vis):
-    x = tf.reshape([x], shape=(1,1))
-    psi_vis[i] = model.call_wavefn(x)
+    x = tf.expand_dims([x], axis=0)
+    psi_vis[i] = model.get_wavefunc(x)
     probs_vis[i] = model(x)
 plt.plot(x_vis, psi_vis, c='lime', label='Wavefn.')
 plt.plot(x_vis, probs_vis, c='cyan', label='Prob. dist.')
 
 plt.legend(loc='upper right')
-plt.savefig('solution.png')
+plt.savefig(f'solution_n={n}.png')
 plt.show()
