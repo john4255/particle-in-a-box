@@ -84,7 +84,7 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 
 # Loss parameters (adjust as needed)
 data_weight = tf.constant(1.0)
-physics_weight = tf.constant(10.0)
+physics_weight = tf.constant(1.0)
 # reverse_l2_weight = tf.constant(1.0E3) # turn off
 physics_reps = 20
 
