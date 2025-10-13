@@ -27,9 +27,9 @@ def gen_data(sz=5000):
         x = np.random.rand() * L
         if (x > 0.2 * L and x < 0.3 * L) or (x > 0.85 * L):
             continue
-        psi = psi_soln(x)
-        psi_noised = psi + (np.random.rand() * 0.2 - 0.1) * psi
-        ds[i] = [x, psi_noised ** 2]
+        p = psi_soln(x) ** 2
+        p_noised = p + (np.random.rand() * 0.2 - 0.1) * p
+        ds[i] = [x, p_noised]
     # ds[:, 1] /= np.sum(ds[:, 1])
     return ds
 
@@ -48,7 +48,7 @@ class QMModel(Model):
         self.d1 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
         self.d2 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
         self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
-        self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05)) # TODO: tweak
+        self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05)) # TODO: test
 
         self.drop1 = Dropout(0.3)
         self.drop2 = Dropout(0.3)
@@ -84,8 +84,7 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 
 # Loss parameters (adjust as needed)
 data_weight = tf.constant(1.0)
-physics_weight = tf.constant(1.0)
-# reverse_l2_weight = tf.constant(1.0E3) # turn off
+physics_weight = tf.constant(1.0E6) # TODO: test
 physics_reps = 20
 
 @tf.function
@@ -112,7 +111,7 @@ def train_physics_step(x):
         _, psi = model(x, training=True)
         dpsi_dx = tf.gradients(psi, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        loss = physics_weight * calc_physics_loss(x, psi, d2psi_dx2)
+        loss = calc_physics_loss(x, psi, d2psi_dx2)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
@@ -127,8 +126,8 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 2000
-batch_sz = 64
+EPOCHS = 2500
+batch_sz = 32
 ds = gen_data()
 
 # Train model
@@ -189,13 +188,16 @@ ax.set_xticks(np.linspace(0.0, L, 5))
 x_vis = np.linspace(0.0, L, 250)
 psi_vis = np.zeros(250)
 probs_vis = np.zeros(250)
+psi_real = np.zeros(250)
 for i, x in enumerate(x_vis):
     x = tf.expand_dims([x], axis=0)
     probs, psi = model(x)
     probs_vis[i] = probs
     psi_vis[i] = psi
+    psi_real[i] = psi_soln(x)
 plt.plot(x_vis, psi_vis, c='lime', label='Pseudo-Wavefunction')
 plt.plot(x_vis, probs_vis, c='cyan', label='Probability dist.')
+plt.plot(x_vis, psi_real, c='yellow', label='Real Wavefunction')
 
 plt.legend(loc='upper right')
 plt.savefig(f'solution_n={n}.png')
