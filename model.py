@@ -5,7 +5,7 @@ from keras import Model, regularizers
 import numpy as np
 import matplotlib.pyplot as plt
 
-n = 5 # Energy level
+n = 2 # Principal quantum number
 h = 6.626E-19 # Planck's constant (um^2 g / s)
 hbar = h / (2.0 * np.pi) # reduced Planck's constant
 m = 9.109E-28 # electron mass (g)
@@ -28,9 +28,8 @@ def gen_data(sz=5000):
         if (x > 0.2 * L and x < 0.3 * L) or (x > 0.85 * L):
             continue
         p = psi_soln(x) ** 2
-        p_noised = p + (np.random.rand() * 0.2 - 0.1) * p
+        p_noised = p + (np.random.rand() * 0.3 - 0.15) * p
         ds[i] = [x, p_noised]
-    # ds[:, 1] /= np.sum(ds[:, 1])
     return ds
 
 class QMModel(Model):
@@ -48,7 +47,7 @@ class QMModel(Model):
         self.d1 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
         self.d2 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
         self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
-        self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05)) # TODO: test
+        self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
 
         self.drop1 = Dropout(0.3)
         self.drop2 = Dropout(0.3)
@@ -84,8 +83,8 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 
 # Loss parameters (adjust as needed)
 data_weight = tf.constant(1.0)
-physics_weight = tf.constant(1.0E6) # TODO: test
-physics_reps = 20
+physics_weight = tf.constant(1.0E5) # TODO: test
+physics_reps = 30
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
@@ -126,8 +125,8 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 2500
-batch_sz = 32
+EPOCHS = 1600
+batch_sz = 64
 ds = gen_data()
 
 # Train model
