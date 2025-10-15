@@ -44,15 +44,15 @@ class QMModel(Model):
         #     initializer=E_init,
         #     trainable=True,
         # )
-        self.d1 = Dense(128, activation=tf.math.cos, kernel_regularizer=regularizers.L2(0.05))
-        self.d2 = Dense(128, activation=tf.math.cos, kernel_regularizer=regularizers.L2(0.05))
-        self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
-        self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.05))
+        self.d1 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
+        self.d2 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
+        self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
+        self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
 
-        self.drop1 = Dropout(0.3)
-        self.drop2 = Dropout(0.3)
-        self.drop3 = Dropout(0.3)
-        self.drop4 = Dropout(0.3)
+        self.drop1 = Dropout(0.1)
+        self.drop2 = Dropout(0.1)
+        self.drop3 = Dropout(0.1)
+        self.drop4 = Dropout(0.1)
 
         self.dout = Dense(1, activation='linear')
 
@@ -62,6 +62,7 @@ class QMModel(Model):
         # )
     
     def call(self, x):
+        x = x / L
         x = self.d1(x)
         x = self.drop1(x)
         x = self.d2(x)
@@ -80,21 +81,21 @@ class QMModel(Model):
 model = QMModel()
 
 loss_object = tf.keras.losses.MeanSquaredError()
-optimizer = tf.keras.optimizers.Adam(learning_rate=1.0E-4, clipvalue=10.0)
+optimizer = tf.keras.optimizers.SGD(learning_rate=1.0E-5, clipvalue=100.0)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 
 # Loss parameters (adjust as needed)
 data_weight = tf.constant(1.0)
-physics_weight = tf.constant(1.0E5) # TODO: test
+physics_weight = tf.constant(0.0) # TODO: test
 # psi_weight = tf.constant(1.0E3)
-physics_reps = 35
+physics_reps = 0
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
     p_loss = E * psi + ((hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2, dtype=tf.float32)) - V(x) * psi
-    return p_loss ** 2 # - psi ** 2
+    return tf.norm(p_loss) ** 2 # - psi ** 2
 
 @tf.function
 def train_step(x, density):
@@ -102,8 +103,9 @@ def train_step(x, density):
         predictions, psi = model(x, training=True)
         dpsi_dx = tf.gradients(psi, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
+        physics_loss = calc_physics_loss(x, psi, d2psi_dx2)
         data_loss = loss_object(density, predictions)
+        # tf.print(physics_loss)
         loss = data_weight * data_loss + physics_weight * physics_loss # - psi_weight * (psi ** 2)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -135,12 +137,12 @@ def test_step(x, density):
     predictions, psi = model(x, training=False)
     dpsi_dx = tf.gradients(psi, x)
     d2psi_dx2 = tf.gradients(dpsi_dx, x)
-    physics_loss = calc_physics_loss(x, predictions, d2psi_dx2)
+    physics_loss = calc_physics_loss(x, psi, d2psi_dx2)
     data_loss = loss_object(density, predictions)
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 2000 # Adjust for different scenarios
+EPOCHS = 1000 # Adjust for different scenarios
 batch_sz = 64
 ds = gen_data()
 
