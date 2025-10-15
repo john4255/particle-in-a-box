@@ -49,10 +49,10 @@ class QMModel(Model):
         self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
         self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
 
-        self.drop1 = Dropout(0.1)
-        self.drop2 = Dropout(0.1)
-        self.drop3 = Dropout(0.1)
-        self.drop4 = Dropout(0.1)
+        self.drop1 = Dropout(0.3)
+        self.drop2 = Dropout(0.3)
+        self.drop3 = Dropout(0.3)
+        self.drop4 = Dropout(0.3)
 
         self.dout = Dense(1, activation='linear')
 
@@ -88,9 +88,8 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 
 # Loss parameters (adjust as needed)
 data_weight = tf.constant(1.0)
-physics_weight = tf.constant(0.0) # TODO: test
+physics_weight = tf.constant(1.0E3) # TODO: test
 # psi_weight = tf.constant(1.0E3)
-physics_reps = 0
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
@@ -168,14 +167,15 @@ for epoch in range(EPOCHS):
 
     train_loss.reset_state()
     # optimizer.learning_rate = 1.0E-4
-    for _ in range(physics_reps):
-        x_sample = np.linspace(-0.10 * L, 1.10 * L, 512)
-        np.random.shuffle(x_sample)
-        for j in range(0, len(x_sample), batch_sz):
-            x = x_sample[j:j+batch_sz]
-            x = tf.reshape([x], shape=(len(x),1,))
-            train_physics_step(x)
-    physics_training_loss = train_loss.result()
+    if epoch % 25 == 0:
+        for _ in range(25):
+            x_sample = np.linspace(-0.10 * L, 1.10 * L, 512)
+            np.random.shuffle(x_sample)
+            for j in range(0, len(x_sample), batch_sz):
+                x = x_sample[j:j+batch_sz]
+                x = tf.reshape([x], shape=(len(x),1,))
+                train_physics_step(x)
+    # physics_training_loss = train_loss.result()
 
     # Normalize Wavefunction
     # optimizer.learning_rate = 1.0E-3
@@ -193,12 +193,12 @@ for epoch in range(EPOCHS):
 
     print(
         f'Epoch {epoch+1:04d}: '
-        f'Reg Loss: {reg_training_loss:0.2f}, '
-        f'Pure Physics Loss: {physics_training_loss:0.2f}, '
+        f'Loss: {reg_training_loss:0.2f}, '
+        # f'Pure Physics Loss: {physics_training_loss:0.2f}, '
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
 
-    if reg_test_loss < 500.0:
+    if reg_test_loss < 100.0:
         print('Early termination!')
         break
 
