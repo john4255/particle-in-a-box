@@ -141,7 +141,7 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 1000 # Adjust for different scenarios
+EPOCHS = 1200 # Adjust for different scenarios
 batch_sz = 64
 ds = gen_data()
 
@@ -175,14 +175,12 @@ for epoch in range(EPOCHS):
                 x = x_sample[j:j+batch_sz]
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
-    # physics_training_loss = train_loss.result()
-
-    # Normalize Wavefunction
-    # optimizer.learning_rate = 1.0E-3
-    # if epoch % 10 == 0:
-    #     x = np.linspace(0.0, L, 128)
-    #     x = tf.reshape([x], shape=(128,1,))
-    #     train_normalize_step(x)
+        # Normalize Wavefunction
+        # optimizer.learning_rate = 1.0E-3
+        x = np.linspace(0.0, L, 128)
+        x = tf.reshape([x], shape=(128,1,))
+        # for _ in range(5):
+        train_normalize_step(x)
 
     # Test data
     test_loss.reset_state()
