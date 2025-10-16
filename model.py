@@ -89,12 +89,14 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 # Loss parameters (adjust as needed)
 data_weight = tf.constant(1.0)
 physics_weight = tf.constant(1.0E3) # TODO: test
-# psi_weight = tf.constant(1.0E3)
+global_physics_weight = tf.constant(1.0)
+normalization_weight = tf.constant(1.0E-2)
+bc_weight = tf.constant(1.0)
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
     p_loss = E * psi + ((hbar ** 2 / (2 * m)) * tf.cast(d2psi_dx2, dtype=tf.float32)) - V(x) * psi
-    return tf.norm(p_loss) ** 2 # - psi ** 2
+    return tf.norm(p_loss) ** 2
 
 @tf.function
 def train_step(x, density):
@@ -116,7 +118,7 @@ def train_physics_step(x):
         _, psi = model(x, training=True)
         dpsi_dx = tf.gradients(psi, x)
         d2psi_dx2 = tf.gradients(dpsi_dx, x)
-        loss = calc_physics_loss(x, psi, d2psi_dx2)
+        loss = global_physics_weight * calc_physics_loss(x, psi, d2psi_dx2)
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
@@ -126,10 +128,18 @@ def train_normalize_step(x):
     with tf.GradientTape() as tape:
         _, psi = model(x, training=True)
         dx = L / 128
-        loss = ((tf.norm(psi) ** 2) * dx - 1.0) ** 2
+        loss = normalization_weight * ((tf.norm(psi) ** 2) * dx - 1.0) ** 2
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
+
+@tf.function
+def train_bc_step(x):
+    with tf.GradientTape() as tape:
+        _, psi = model(x, training=True)
+        loss = bc_weight * tf.norm(psi) ** 2
+    gradients = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
 
 @tf.function
 def test_step(x, density):
@@ -141,7 +151,7 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 1200 # Adjust for different scenarios
+EPOCHS = 1000 # Adjust for different scenarios
 batch_sz = 64
 ds = gen_data()
 
@@ -168,19 +178,27 @@ for epoch in range(EPOCHS):
     train_loss.reset_state()
     # optimizer.learning_rate = 1.0E-4
     if epoch % 25 == 0:
+        # Enforce global physics
         for _ in range(25):
-            x_sample = np.linspace(-0.10 * L, 1.10 * L, 512)
+            x_sample = np.linspace(-0.2 * L, 1.2 * L, 1024)
             np.random.shuffle(x_sample)
             for j in range(0, len(x_sample), batch_sz):
                 x = x_sample[j:j+batch_sz]
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
-        # Normalize Wavefunction
-        # optimizer.learning_rate = 1.0E-3
-        x = np.linspace(0.0, L, 128)
-        x = tf.reshape([x], shape=(128,1,))
-        # for _ in range(5):
-        train_normalize_step(x)
+
+        # # Normalize Wavefunction
+        # # optimizer.learning_rate = 1.0E-3
+        # x = np.linspace(0.0, L, 128)
+        # x = tf.reshape([x], shape=(128,1,))
+        # train_normalize_step(x)
+        
+    # Enforce boundary conditions
+    # if epoch % 10 == 0:
+    #     x1 = tf.reshape([0.0], shape=(1,1))
+    #     x2 = tf.reshape([L], shape=(1,1))
+    #     train_bc_step(x1)
+    #     train_bc_step(x2)
 
     # Test data
     test_loss.reset_state()
@@ -196,9 +214,9 @@ for epoch in range(EPOCHS):
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
 
-    if reg_test_loss < 100.0:
-        print('Early termination!')
-        break
+    # if reg_test_loss < 100.0:
+    #     print('Early termination!')
+    #     break
 
 model.save(f'model_n={n}.keras')
 
