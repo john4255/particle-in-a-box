@@ -49,17 +49,12 @@ class QMModel(Model):
         self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
         self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
 
-        self.drop1 = Dropout(0.3)
-        self.drop2 = Dropout(0.3)
-        self.drop3 = Dropout(0.3)
-        self.drop4 = Dropout(0.3)
+        self.drop1 = Dropout(0.4)
+        self.drop2 = Dropout(0.4)
+        self.drop3 = Dropout(0.4)
+        self.drop4 = Dropout(0.4)
 
         self.dout = Dense(1, activation='linear')
-
-        # self.wave_scale = self.add_weight(
-        #     shape=([1]),
-        #     trainable=True,
-        # )
     
     def call(self, x):
         x = x / L
@@ -90,8 +85,8 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 data_weight = tf.constant(1.0)
 physics_weight = tf.constant(1.0E3) # TODO: test
 global_physics_weight = tf.constant(1.0)
-normalization_weight = tf.constant(1.0E-2)
-bc_weight = tf.constant(1.0)
+normalization_weight = tf.constant(1.0E-6)
+bc_weight = tf.constant(1.0E-2)
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
@@ -127,7 +122,7 @@ def train_physics_step(x):
 def train_normalize_step(x):
     with tf.GradientTape() as tape:
         _, psi = model(x, training=True)
-        dx = L / 128
+        dx = L / 1024
         loss = normalization_weight * ((tf.norm(psi) ** 2) * dx - 1.0) ** 2
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -168,17 +163,21 @@ for epoch in range(EPOCHS):
 
     # Train data
     train_loss.reset_state()
-    # optimizer.learning_rate = 1.0E-4
     for x, psi in train_ds:
         x = tf.reshape([x], shape=(len(x),1,))
         psi = tf.reshape([psi], shape=(len(x),1,))
         train_step(x, psi)
     reg_training_loss = train_loss.result()
 
-    train_loss.reset_state()
-    # optimizer.learning_rate = 1.0E-4
+
+    # Correct global structure
     if epoch % 25 == 0:
-        # Enforce global physics
+        # Normalize wavefunction
+        x = np.linspace(0.0, L, 1024)
+        x = tf.reshape([x], shape=(1024,1))
+        train_normalize_step(x)
+
+        # Physics scan
         for _ in range(25):
             x_sample = np.linspace(-0.2 * L, 1.2 * L, 1024)
             np.random.shuffle(x_sample)
@@ -186,19 +185,12 @@ for epoch in range(EPOCHS):
                 x = x_sample[j:j+batch_sz]
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
-
-        # # Normalize Wavefunction
-        # # optimizer.learning_rate = 1.0E-3
-        # x = np.linspace(0.0, L, 128)
-        # x = tf.reshape([x], shape=(128,1,))
-        # train_normalize_step(x)
-        
-    # Enforce boundary conditions
-    # if epoch % 10 == 0:
-    #     x1 = tf.reshape([0.0], shape=(1,1))
-    #     x2 = tf.reshape([L], shape=(1,1))
-    #     train_bc_step(x1)
-    #     train_bc_step(x2)
+    
+    # Enforce BC
+    # x1 = tf.reshape([0.0], shape=(1,1))
+    # x2 = tf.reshape([L], shape=(1,1))
+    # train_bc_step(x1)
+    # train_bc_step(x2)
 
     # Test data
     test_loss.reset_state()
@@ -213,10 +205,6 @@ for epoch in range(EPOCHS):
         # f'Pure Physics Loss: {physics_training_loss:0.2f}, '
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
-
-    # if reg_test_loss < 100.0:
-    #     print('Early termination!')
-    #     break
 
 model.save(f'model_n={n}.keras')
 
