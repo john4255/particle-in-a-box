@@ -173,14 +173,11 @@ for epoch in range(EPOCHS):
 
     # Correct global structure
     if epoch % 25 == 0:
-        pbar = tqdm(total=30, desc="Correcting global structure...")
-
         # Normalize wavefunction
         x = np.linspace(0.0, L, 1024)
         x = tf.reshape([x], shape=(1024,1))
         for _ in range(5):
             train_normalize_step(x)
-            pbar.update(1)
 
         # Physics scan
         for _ in range(25):
@@ -190,8 +187,6 @@ for epoch in range(EPOCHS):
                 x = x_sample[j:j+batch_sz]
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
-                pbar.update(1)
-        pbar.close()
     
     # Enforce BC
     # x1 = tf.reshape([0.0], shape=(1,1))
