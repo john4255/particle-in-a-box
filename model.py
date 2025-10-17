@@ -123,7 +123,7 @@ def train_physics_step(x):
 def train_normalize_step(x):
     with tf.GradientTape() as tape:
         _, psi = model(x, training=True)
-        dx = L / 1024
+        dx = L / 2048
         loss = normalization_weight * ((tf.norm(psi) ** 2) * dx - 1.0) ** 2
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -147,7 +147,7 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 1000 # Adjust for different scenarios
+EPOCHS = 1200 # Adjust for different scenarios
 batch_sz = 64
 ds = gen_data()
 
@@ -172,27 +172,28 @@ for epoch in range(EPOCHS):
 
 
     # Correct global structure
-    if epoch % 25 == 0:
+    if epoch % 50 == 0:
+        print('Correcting global physics...')
         # Normalize wavefunction
-        x = np.linspace(0.0, L, 1024)
-        x = tf.reshape([x], shape=(1024,1))
-        for _ in range(5):
-            train_normalize_step(x)
+        x = np.linspace(0.0, L, 2048)
+        x = tf.reshape([x], shape=(2048,1))
+        # for _ in range(5):
+        train_normalize_step(x)
+        
+        # Enforce BC
+        # x1 = tf.reshape([0.0], shape=(1,1))
+        # x2 = tf.reshape([L], shape=(1,1))
+        # train_bc_step(x1)
+        # train_bc_step(x2)
 
         # Physics scan
-        for _ in range(25):
-            x_sample = np.linspace(-0.2 * L, 1.2 * L, 1024)
+        for _ in range(50):
+            x_sample = np.linspace(-0.2 * L, 1.2 * L, 2048)
             np.random.shuffle(x_sample)
             for j in range(0, len(x_sample), batch_sz):
                 x = x_sample[j:j+batch_sz]
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
-    
-    # Enforce BC
-    # x1 = tf.reshape([0.0], shape=(1,1))
-    # x2 = tf.reshape([L], shape=(1,1))
-    # train_bc_step(x1)
-    # train_bc_step(x2)
 
     # Test data
     test_loss.reset_state()
@@ -207,6 +208,10 @@ for epoch in range(EPOCHS):
         # f'Pure Physics Loss: {physics_training_loss:0.2f}, '
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
+
+    if reg_test_loss < 25.0:
+        print('Early Termination!')
+        break
 
 model.save(f'model_n={n}.keras')
 
