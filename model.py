@@ -4,6 +4,7 @@ from keras import Model, regularizers
 
 import numpy as np
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 n = 5 # Principal quantum number
 h = 6.626E-19 # Planck's constant (um^2 g / s)
@@ -102,7 +103,7 @@ def train_step(x, density):
         physics_loss = calc_physics_loss(x, psi, d2psi_dx2)
         data_loss = loss_object(density, predictions)
         # tf.print(physics_loss)
-        loss = data_weight * data_loss + physics_weight * physics_loss # - psi_weight * (psi ** 2)
+        loss = data_weight * data_loss + physics_weight * physics_loss
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     train_loss(loss)
@@ -172,10 +173,14 @@ for epoch in range(EPOCHS):
 
     # Correct global structure
     if epoch % 25 == 0:
+        pbar = tqdm(total=30, desc="Correcting global structure...")
+
         # Normalize wavefunction
         x = np.linspace(0.0, L, 1024)
         x = tf.reshape([x], shape=(1024,1))
-        train_normalize_step(x)
+        for _ in range(5):
+            train_normalize_step(x)
+            pbar.update(1)
 
         # Physics scan
         for _ in range(25):
@@ -185,6 +190,8 @@ for epoch in range(EPOCHS):
                 x = x_sample[j:j+batch_sz]
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
+                pbar.update(1)
+        pbar.close()
     
     # Enforce BC
     # x1 = tf.reshape([0.0], shape=(1,1))
