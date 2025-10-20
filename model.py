@@ -1,5 +1,5 @@
 import tensorflow as tf
-from keras.layers import Conv1D, Dense, Dropout
+from keras.layers import Dense, Dropout, BatchNormalization
 from keras import Model, regularizers
 
 import numpy as np
@@ -50,22 +50,31 @@ class QMModel(Model):
         self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
         self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
 
-        self.drop1 = Dropout(0.4)
-        self.drop2 = Dropout(0.4)
-        self.drop3 = Dropout(0.4)
-        self.drop4 = Dropout(0.4)
+        self.drop1 = Dropout(0.3)
+        self.drop2 = Dropout(0.3)
+        self.drop3 = Dropout(0.3)
+        self.drop4 = Dropout(0.3)
+
+        # self.bnorm1 = BatchNormalization()
+        # self.bnorm2 = BatchNormalization()
+        # self.bnorm3 = BatchNormalization()
+        # self.bnorm4 = BatchNormalization()
 
         self.dout = Dense(1, activation='linear')
     
     def call(self, x):
         x = x / L
         x = self.d1(x)
+        # x = self.bnorm1(x)
         x = self.drop1(x)
         x = self.d2(x)
+        # x = self.bnorm2(x)
         x = self.drop2(x)
         x = self.d3(x)
+        # x = self.bnorm3(x)
         x = self.drop3(x)
         x = self.d4(x)
+        # x = self.bnorm4(x)
         x = self.drop4(x)
         wave_func = self.dout(x)
 
@@ -85,9 +94,9 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 # Loss parameters (adjust as needed)
 data_weight = tf.constant(1.0)
 physics_weight = tf.constant(1.0E3) # TODO: test
-global_physics_weight = tf.constant(1.0)
-normalization_weight = tf.constant(1.0E-6)
-bc_weight = tf.constant(1.0E-2)
+global_physics_weight = tf.constant(1.0E4)
+normalization_weight = tf.constant(1.0E-2)
+bc_weight = tf.constant(1.0)
 
 @tf.function
 def calc_physics_loss(x, psi, d2psi_dx2):
@@ -147,7 +156,7 @@ def test_step(x, density):
     t_loss = data_weight * data_loss + physics_weight * physics_loss
     test_loss(t_loss)
 
-EPOCHS = 1200 # Adjust for different scenarios
+EPOCHS = 1000 # Adjust for different scenarios
 batch_sz = 64
 ds = gen_data()
 
@@ -172,28 +181,31 @@ for epoch in range(EPOCHS):
 
 
     # Correct global structure
-    if epoch % 50 == 0:
-        print('Correcting global physics...')
-        # Normalize wavefunction
-        x = np.linspace(0.0, L, 2048)
-        x = tf.reshape([x], shape=(2048,1))
-        # for _ in range(5):
-        train_normalize_step(x)
-        
-        # Enforce BC
-        # x1 = tf.reshape([0.0], shape=(1,1))
-        # x2 = tf.reshape([L], shape=(1,1))
-        # train_bc_step(x1)
-        # train_bc_step(x2)
+    if epoch % 25 == 0:
+        print('Correcting global wavefunction structure...')
+        for _ in tqdm(range(25)):
+            # Enforce BC
+            # x1 = np.zeros(batch_sz)
+            # x1 = tf.reshape(x1, shape=(batch_sz, 1))
+            # x2 = L * np.ones(batch_sz)
+            # x2 = tf.reshape(x2, shape=(batch_sz, 1))
+            # train_bc_step(x1)
+            # train_bc_step(x2)
 
-        # Physics scan
-        for _ in range(50):
+            # Normalize wavefunction
+            # x = np.linspace(0.0, L, 2048)
+            # x = tf.reshape([x], shape=(2048,1))
+            # train_normalize_step(x)
+
+            # Physics scan
             x_sample = np.linspace(-0.2 * L, 1.2 * L, 2048)
             np.random.shuffle(x_sample)
             for j in range(0, len(x_sample), batch_sz):
+                # Enforce physics
                 x = x_sample[j:j+batch_sz]
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
+
 
     # Test data
     test_loss.reset_state()
@@ -209,7 +221,7 @@ for epoch in range(EPOCHS):
         f'Test Loss: {reg_test_loss:0.2f}, '
     )
 
-    if reg_test_loss < 25.0:
+    if reg_test_loss < 100.0:
         print('Early Termination!')
         break
 
