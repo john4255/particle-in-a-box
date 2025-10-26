@@ -86,7 +86,7 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 data_weight = tf.constant(1.0)
 physics_weight = tf.constant(1.0E3) # TODO: test
 global_physics_weight = tf.constant(1.0E5)
-normalization_weight = tf.constant(1.0E-2)
+normalization_weight = tf.constant(1.0E-1) # TODO: decrease
 bc_weight = tf.constant(1.0E-1)
 
 @tf.function
@@ -123,7 +123,7 @@ def train_physics_step(x):
 def train_normalize_step(x):
     with tf.GradientTape() as tape:
         _, psi = model(x, training=True)
-        dx = L / 2048
+        dx = L / 1024
         loss = normalization_weight * ((tf.norm(psi) ** 2) * dx - 1.0) ** 2
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -140,12 +140,20 @@ def train_bc_step(x):
 @tf.function
 def test_step(x, density):
     predictions, psi = model(x, training=False)
+    data_loss = loss_object(density, predictions)
     dpsi_dx = tf.gradients(psi, x)
     d2psi_dx2 = tf.gradients(dpsi_dx, x)
     physics_loss = calc_physics_loss(x, psi, d2psi_dx2)
-    data_loss = loss_object(density, predictions)
-    t_loss = data_weight * data_loss + physics_weight * physics_loss
-    test_loss(t_loss)
+    physics_loss = data_weight * data_loss + physics_weight * physics_loss
+    test_loss(data_loss)
+
+@tf.function
+def test_physics_step(x):
+    _, psi = model(x, training=False)
+    dpsi_dx = tf.gradients(psi, x)
+    d2psi_dx2 = tf.gradients(dpsi_dx, x)
+    physics_loss = global_physics_weight * calc_physics_loss(x, psi, d2psi_dx2)
+    test_loss(physics_loss)
 
 EPOCHS = 1000 # Adjust for different scenarios
 batch_sz = 64
@@ -179,18 +187,15 @@ for epoch in range(EPOCHS):
         train_bc_step(x1)
         train_bc_step(x2)
 
+        x = np.linspace(0.0, L, 1024)
+        x = tf.reshape(x, shape=(1024, 1))
+        train_normalize_step(x)
+
     # Correct global structure
     if epoch % 25 == 0:
         print('Correcting global wavefunction structure...')
         for _ in tqdm(range(25)):
-            # Normalize wavefunction
-            # x = np.linspace(0.0, L, 2048)
-            # x = tf.reshape([x], shape=(2048,1))
-            # train_normalize_step(x)
-
-
-            # Physics scan
-            x_sample = np.linspace(0, L, 2048)
+            x_sample = np.linspace(0.0, L, 2048)
             np.random.shuffle(x_sample)
             for j in range(0, len(x_sample), batch_sz):
                 # Enforce physics
@@ -198,22 +203,31 @@ for epoch in range(EPOCHS):
                 x = tf.reshape([x], shape=(len(x),1,))
                 train_physics_step(x)
 
-
     # Test data
     test_loss.reset_state()
-    for x, psi in test_ds:
+    reg_test_loss = 0.0
+    for x, density in test_ds:
         x = tf.reshape([x], shape=(len(x),1,))
-        test_step(x, psi)
-    reg_test_loss = test_loss.result()
+        test_step(x, density)
+        reg_test_loss += test_loss.result()
+    
+    test_loss.reset_state()
+    physics_test_loss = 0.0
+    x_test = np.linspace(0.0, L, 1024)
+    for j in range(0, 1024, batch_sz):
+        x = x_test[j:j+batch_sz]
+        x = tf.reshape([x], shape=(batch_sz,1,))
+        test_physics_step(x)
+        physics_test_loss += test_loss.result()
 
     print(
         f'Epoch {epoch+1:04d}: '
-        f'Loss: {reg_training_loss:0.2f}, '
-        # f'Pure Physics Loss: {physics_training_loss:0.2f}, '
+        f'Training Loss: {reg_training_loss:0.2f}, '
         f'Test Loss: {reg_test_loss:0.2f}, '
+        f'Physics Test Loss: {physics_test_loss:0.2f}, '
     )
 
-    if reg_test_loss < 100.0:
+    if reg_test_loss < 200.0 and physics_test_loss < 20.0:
         print('Early Termination!')
         break
 
