@@ -26,7 +26,7 @@ def gen_data(sz=5000):
     # sum = 0
     for i in range(sz):
         x = np.random.rand() * L
-        if (x > 0.2 * L and x < 0.35 * L) or (x > 0.85 * L):
+        if (x > 0.2 * L and x < 0.35 * L) or (x > 0.65 * L and x < 0.75 * L) or (x > 0.9 * L):
             continue
         p = psi_soln(x) ** 2
         p_noised = p + (np.random.rand() * 0.3 - 0.15) * p
@@ -49,11 +49,13 @@ class QMModel(Model):
         self.d2 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
         self.d3 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
         self.d4 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
+        self.d5 = Dense(128, activation='gelu', kernel_regularizer=regularizers.L2(0.01))
 
         self.drop1 = Dropout(0.3)
         self.drop2 = Dropout(0.3)
         self.drop3 = Dropout(0.3)
         self.drop4 = Dropout(0.3)
+        self.drop5 = Dropout(0.3)
 
         self.dout = Dense(1, activation='linear')
     
@@ -67,6 +69,8 @@ class QMModel(Model):
         x = self.drop3(x)
         x = self.d4(x)
         x = self.drop4(x)
+        x = self.d5(x)
+        x = self.drop5(x)
         wave_func = self.dout(x)
 
         # Square wavefunction to obtain a probability density value
